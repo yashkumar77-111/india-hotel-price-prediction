@@ -1,11 +1,12 @@
 """
 Streamlit app for the India Hotel Price Predictor.
 
-Loads the trained pipeline from models/model.pkl and lets the user enter
-listing details to get a predicted nightly price.
-
-This app never trains anything -- run `python main.py` first to create
-the model, then `streamlit run app.py` to launch this UI.
+Loads the trained pipeline from models/model.pkl. If it's missing OR fails
+to load (e.g. a scikit-learn version mismatch between the machine that
+saved it and the machine running this app), the model is trained fresh
+right here instead - this guarantees the model always matches whichever
+scikit-learn version is actually installed in this environment, which a
+pre-saved file can't guarantee across different machines/cloud platforms.
 """
 import folium
 import pandas as pd
@@ -14,14 +15,22 @@ from streamlit_folium import st_folium
 
 from landmarks import LANDMARK_COORDS, STATE_LANDMARKS
 from src.predict import load_model, predict_price
-from src.train import AMENITY_FEATURES, DATA_PATH, MODEL_PATH, clean_data, load_data
+from src.train import AMENITY_FEATURES, DATA_PATH, MODEL_PATH, clean_data, load_data, train_and_save
 
 st.set_page_config(page_title="India Hotel Price Predictor", page_icon="🏨")
 
 
 @st.cache_resource
 def get_model():
-    return load_model(MODEL_PATH)
+    try:
+        return load_model(MODEL_PATH)
+    except Exception:
+        # Missing file, or a version-mismatch error unpickling an existing
+        # one - either way, train a fresh model in this exact environment
+        # rather than surfacing a confusing error to the user.
+        with st.spinner("Setting up the model for the first time - this takes a minute..."):
+            train_and_save(data_path=DATA_PATH, model_path=MODEL_PATH)
+        return load_model(MODEL_PATH)
 
 
 @st.cache_data
@@ -38,11 +47,7 @@ st.caption(
     "precise one."
 )
 
-try:
-    model = get_model()
-except FileNotFoundError:
-    st.error("Model not found. Run `python main.py` first.")
-    st.stop()
+model = get_model()
 
 df = get_reference_data()
 
